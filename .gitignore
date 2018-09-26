@@ -1,3 +1,4 @@
 *.o
 *~
-
+build
+__ignore_*
