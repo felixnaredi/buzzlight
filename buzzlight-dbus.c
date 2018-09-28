@@ -12,13 +12,14 @@
 #include <time.h>
 #include <stdbool.h>
 #include <stdlib.h>
+#include <pthread.h>
 #include <systemd/sd-bus.h>
 
 #ifndef BACKLPATH
 #define BACKLPATH "/sys/class/backlight/intel_backlight"
 #endif /* BUZZ_DEBUG */
 
-#define GUARD(p) if(!(p)) return -1;
+#define GUARD(p) do { if(!(p)) return -1; } while(0)
 #define OK 0
 #define min(a, b) (a < b ? a : b)
 
@@ -26,11 +27,22 @@ struct backl
 {
 	uint32_t maxbrg;
 	uint32_t stored;
-	bool t:1;
+	bool ready:1;
 	bool on:1;
 };
 
-static struct backl *bl;
+struct ssetd
+{
+	pthread_t thread;
+	uint32_t from;
+	uint32_t to;
+	uint32_t usec;
+	bool store:1;
+	bool running:1;
+};
+
+static struct backl *bl = NULL;
+static sd_bus *bus = NULL;
 
 static int parse10n_uint32(const char *s, size_t len, unsigned *n)
 {
@@ -74,8 +86,8 @@ static int init_backl(struct backl *bl)
 {
 	GUARD(readval(BACKLPATH "/brightness", &bl->stored) == OK);
 	GUARD(readval(BACKLPATH "/max_brightness", &bl->maxbrg) == OK);
-	bl->on = 1;
-	bl->t = 0;
+	bl->on = !!bl->stored;
+	bl->ready = 1;
 	return OK;
 }
 
@@ -96,7 +108,7 @@ static int init_backl(struct backl *bl)
 static PROPERTY_GETTER(property_get_backlight_enabled, "b", bl->on);
 static PROPERTY_GETTER(property_get_max_brightness, "u", bl->maxbrg);
 static PROPERTY_GETTER(property_get_stored_brightness, "u", bl->stored);
-static PROPERTY_GETTER(property_get_transitioning, "b", bl->t);
+static PROPERTY_GETTER(property_get_ready, "b", bl->ready);
 
 #undef PROPERTY_GETTER
 
@@ -123,8 +135,7 @@ static int set_brightness(uint32_t val)
 	char buf[32];
 	int fd;
 
-	fd = open(BACKLPATH "/brightness", O_WRONLY);
-	GUARD(fd > 0);
+	GUARD((fd = open(BACKLPATH "/brightness", O_WRONLY)) > 0);
 	ftruncate(fd, 0);
 
 	val = min(val, bl->maxbrg);
@@ -132,11 +143,7 @@ static int set_brightness(uint32_t val)
 	GUARD(write(fd, buf, strlen(buf)) > 0);
 	close(fd);
 
-	if(bl->on && val == 0)
-		bl->on = 0;
-	if(!bl->on && val > 0)
-		bl->on = 1;
-
+	bl->on = val > 0;
 	return val;
 }
 
@@ -152,6 +159,8 @@ static int property_set_backlight_enabled(sd_bus *bus,
 	 * some optimization happening that crashes the program.
 	 */
 	int b, r;
+
+	GUARD(bl->ready);
 
 	assert(bus);
 	assert(value);
@@ -178,6 +187,7 @@ static int property_set_brightness(sd_bus *bus,
 	int r;
 	uint32_t val;
 
+	GUARD(bl->ready);
 	assert(bus);
 	assert(value);
 
@@ -194,28 +204,71 @@ static int frame_duration_ms(int millisec)
 	return ((float)millisec / 1000.0) * 60;
 }
 
-static int smooth_set(uint32_t from, uint32_t to, uint32_t millisec)
+static int tracker_put(sd_bus_track *track, void *userdata)
 {
-	float d;
+	printf("track_put {track: %x}\n", track);
+	sd_bus_track_unref(track);
+}
+
+static int smooth_set(struct ssetd *sd)
+{
+	float delta;
 	int dur, i;
-	struct timespec req = {
+	struct timespec tns = {
 		.tv_sec = 0,
-		.tv_nsec = (long)1000000000.0 / 60.0,
+		.tv_nsec = (long)(1000000000.0 / 60),
 	};
 
-	dur = frame_duration_ms(millisec);
-	d = ((float)to - (float)from) / (float)dur;
+	dur = frame_duration_ms(sd->usec);
+	delta = ((float)sd->to - (float)sd->from) / (float)dur;
 
-	bl->t = 1;
+	bl->ready = 0;
 	for(i = 0; i < dur; i++) {
-		if(set_brightness(from + (d * i)) < 0)
+		uint32_t v = sd->from + (delta * i);
+
+		if(set_brightness(v) < 0)
 			break;
-		if(nanosleep(&req, NULL) < 0)
+		if(sd->store)
+			bl->stored = v;
+		if(nanosleep(&tns, NULL) < 0)
 			break;
 	}
-	bl->t = 0;
-	GUARD(set_brightness(to) > -1);
+	bl->ready = 1;
+
+	GUARD(set_brightness(sd->to) > -1);
+	if(sd->store)
+		bl->stored = sd->to;
 	GUARD(i == dur);
+
+	return OK;
+}
+
+static void *thread_smooth_set(void *sd)
+{
+	smooth_set(sd);
+	free(sd);
+	return NULL;
+}
+
+static int init_ssetd(struct ssetd *sd,
+		      uint32_t from,
+		      uint32_t to,
+		      uint32_t usec,
+		      bool store)
+{
+	int r;
+
+	assert(sd);
+
+	*sd = (struct ssetd) {
+		.from = from,
+		.to = to,
+		.usec = usec,
+		.store = store,
+	};
+	r = pthread_create(&(sd->thread), NULL, thread_smooth_set, sd);
+	if(r < 0)
+		return r;
 
 	return OK;
 }
@@ -224,20 +277,23 @@ static int method_set_brightness_smooth(sd_bus_message *m,
 					void *userdata,
 					sd_bus_error *error)
 {
-	uint32_t val, millisec, brg;
+	uint32_t val, usec, brg;
 	int store, r;
+	struct ssetd *sd;
 
+	GUARD(bl->ready);
 	assert(m);
-	r = sd_bus_message_read(m, "uub", &val, &millisec, &store);
+
+	r = sd_bus_message_read(m, "uub", &val, &usec, &store);
 	if(r < 0)
 		return r;
 
 	val = min(val, bl->maxbrg);
 	GUARD(get_brightness(&brg) == OK);
-	smooth_set(brg, val, millisec);
 
-	if(store)
-		bl->stored = val;
+	sd = malloc(sizeof(struct ssetd));
+	GUARD(init_ssetd(sd, brg, val, usec, store) == OK);
+	pthread_detach(sd->thread);
 
 	return sd_bus_reply_method_return(m, "");
 }
@@ -246,25 +302,31 @@ static int method_toggle_backlight(sd_bus_message *m,
 				   void *userdata,
 				   sd_bus_error *error)
 {
-	uint32_t val, brg, millisec;
+	uint32_t val, brg, usec;
 	int r;
+	struct ssetd *sd;
 
+	GUARD(bl->ready);
 	assert(m);
-	r = sd_bus_message_read(m, "u", &millisec);
+
+	r = sd_bus_message_read(m, "u", &usec);
 	if(r < 0)
 		return r;
 
 	val = bl->on ? 0 : bl->stored;
 	GUARD(get_brightness(&brg) == OK);
-	GUARD(smooth_set(brg, val, millisec) == OK);
+
+	sd = malloc(sizeof(struct ssetd));
+	GUARD(init_ssetd(sd, brg, val, usec, 0) == OK);
+	pthread_detach(sd->thread);
 
 	return sd_bus_reply_method_return(m, "b", bl->on);
 }
 
 static const sd_bus_vtable vtable[] = {
 	SD_BUS_VTABLE_START(0),
-	SD_BUS_PROPERTY("Transitioning", "b",
-			property_get_transitioning,
+	SD_BUS_PROPERTY("Ready", "b",
+			property_get_ready,
 			0,
 			0),
 	SD_BUS_PROPERTY("MaxBrightness", "u",
@@ -337,7 +399,6 @@ static int run(sd_bus *bus)
 
 int main(int argc, char **argv)
 {
-	sd_bus *bus = NULL;
 	sd_bus_slot *slot = NULL;
 	int r;
 
