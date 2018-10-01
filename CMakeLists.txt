@@ -1,10 +1,4 @@
 cmake_minimum_required(VERSION 3.0)
+project(buzzlight)
 
-add_executable(buzzlight-dbus "buzzlight-dbus.c")
-target_link_libraries(buzzlight-dbus
-  systemd
-  pthread)
-
-add_executable(buzzlight "buzzlight.c")
-target_link_libraries(buzzlight
-  systemd)
+add_subdirectory(lib)

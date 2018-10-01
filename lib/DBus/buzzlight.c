@@ -38,11 +38,9 @@ struct ssetd
 	uint32_t to;
 	uint32_t usec;
 	bool store:1;
-	bool running:1;
 };
 
 static struct backl *bl = NULL;
-static sd_bus *bus = NULL;
 
 static int parse10n_uint32(const char *s, size_t len, unsigned *n)
 {
@@ -135,6 +133,7 @@ static int set_brightness(uint32_t val)
 	char buf[32];
 	int fd;
 
+	assert(bl->ready);
 	GUARD((fd = open(BACKLPATH "/brightness", O_WRONLY)) > 0);
 	ftruncate(fd, 0);
 
@@ -204,25 +203,20 @@ static int frame_duration_ms(int millisec)
 	return ((float)millisec / 1000.0) * 60;
 }
 
-static int tracker_put(sd_bus_track *track, void *userdata)
-{
-	printf("track_put {track: %x}\n", track);
-	sd_bus_track_unref(track);
-}
-
 static int smooth_set(struct ssetd *sd)
 {
 	float delta;
 	int dur, i;
 	struct timespec tns = {
 		.tv_sec = 0,
-		.tv_nsec = (long)(1000000000.0 / 60),
+		.tv_nsec = (long)(1000000000.0 / 60.0),
 	};
+
+	bl->ready = 0;
 
 	dur = frame_duration_ms(sd->usec);
 	delta = ((float)sd->to - (float)sd->from) / (float)dur;
 
-	bl->ready = 0;
 	for(i = 0; i < dur; i++) {
 		uint32_t v = sd->from + (delta * i);
 
@@ -281,8 +275,8 @@ static int method_set_brightness_smooth(sd_bus_message *m,
 	int store, r;
 	struct ssetd *sd;
 
-	GUARD(bl->ready);
 	assert(m);
+	GUARD(bl->ready);
 
 	r = sd_bus_message_read(m, "uub", &val, &usec, &store);
 	if(r < 0)
@@ -306,8 +300,8 @@ static int method_toggle_backlight(sd_bus_message *m,
 	int r;
 	struct ssetd *sd;
 
-	GUARD(bl->ready);
 	assert(m);
+	GUARD(bl->ready);
 
 	r = sd_bus_message_read(m, "u", &usec);
 	if(r < 0)
@@ -364,14 +358,16 @@ static int add_bus_object(sd_bus **bus, sd_bus_slot **slot)
 	if(r < 0)
 		return r;
 
-	r = sd_bus_add_object_vtable(*bus, slot,
-				     "/org/git/felixnaredi/buzzlight",
-				     "org.git.felixnaredi.buzzlight",
-				     vtable, NULL);
+	r = sd_bus_add_object_vtable(*bus,
+				     slot,
+				     "/git/felixnaredi/buzzlight",
+				     "git.felixnaredi.buzzlight",
+				     vtable,
+				     NULL);
 	if(r < 0)
 		return r;
 
-	r = sd_bus_request_name(*bus, "org.git.felixnaredi.buzzlight", 0);
+	r = sd_bus_request_name(*bus, "git.felixnaredi.buzzlight", 0);
 	if(r < 0)
 		return r;
 
@@ -400,6 +396,7 @@ static int run(sd_bus *bus)
 int main(int argc, char **argv)
 {
 	sd_bus_slot *slot = NULL;
+	sd_bus *buss = NULL;
 	int r;
 
 	GUARD((bl = malloc(sizeof(struct backl))) != NULL);
