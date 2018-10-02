@@ -396,7 +396,7 @@ static int run(sd_bus *bus)
 int main(int argc, char **argv)
 {
 	sd_bus_slot *slot = NULL;
-	sd_bus *buss = NULL;
+	sd_bus *bus = NULL;
 	int r;
 
 	GUARD((bl = malloc(sizeof(struct backl))) != NULL);
