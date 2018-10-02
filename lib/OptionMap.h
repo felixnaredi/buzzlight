@@ -41,6 +41,6 @@ public:
 
 };
 
-};
+}
 
 #endif // BUZZ_OPTIONMAP_H

@@ -29,8 +29,6 @@ struct Command {
       : Context(C), Valid(V) {}
 
   Command(const OptionMap &Map);
-
-  static Command InvalidCommand();
 };
 
 class CommandLineParser {

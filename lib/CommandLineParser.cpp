@@ -8,30 +8,10 @@
 
 #include "OptionMap.h"
 #include "buzz/CommandLineParser.h"
-#include <cstring>
 #include <string>
 #include <algorithm>
 
 using namespace buzz;
-
-OptionMap::OptionMap(char **Argv, unsigned Len) {
-  Valid = true;
-  for(unsigned I = 1; I < Len; I++) {
-    char *Key = Argv[I];
-    char *CP = std::strchr(Key, '=');
-    if(!CP) {
-      if(contains(Key))
-        Valid = false;
-      (*this)[Key] = "";
-    }
-    else {
-      *CP = '\0';
-      if(contains(Key))
-        Valid = false;
-      (*this)[Key] = ++CP;
-    }
-  }
-}
 
 class OptionContextQuary {
   const static std::map<std::string, CommandOptionContext> ContentextMap;
@@ -57,6 +37,13 @@ public:
       HasContext = true;
     }
   }
+};
+
+const std::map<std::string, CommandOptionContext>
+OptionContextQuary::ContentextMap = {
+  {"-get", CommandOptionContext::Get},
+  {"-set", CommandOptionContext::Set},
+  {"-help", CommandOptionContext::Help},
 };
 
 Command::Command(const OptionMap &Map) {
@@ -91,7 +78,9 @@ std::unique_ptr<Context> makeContextCommand(const OptionMap &Map) {
   return C;
 }
 
-std::unique_ptr<Command> CommandLineParser::parseCommandLine(char **Argv, int Len) {
+std::unique_ptr<Command> CommandLineParser::parseCommandLine(
+    char **Argv,
+    int Len) {
   OptionMap Map(Argv, Len);
   if(!Map.isValid())
     return nullptr;
@@ -110,10 +99,3 @@ std::unique_ptr<Command> CommandLineParser::parseCommandLine(char **Argv, int Le
   }
   return nullptr;
 }
-
-const std::map<std::string, CommandOptionContext>
-OptionContextQuary::ContentextMap = {
-  {"-get", CommandOptionContext::Get},
-  {"-set", CommandOptionContext::Set},
-  {"-help", CommandOptionContext::Help},
-};

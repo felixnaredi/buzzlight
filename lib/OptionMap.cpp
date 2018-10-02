@@ -7,12 +7,30 @@
 //===----------------------------------------------------------------------===//
 
 #include "OptionMap.h"
+#include <cstring>
 #include <map>
 #include <string>
-#include <functional>
 #include <stdexcept>
 
 using namespace buzz;
+
+OptionMap::OptionMap(char **Argv, unsigned Len) : Valid(true) {
+  for(unsigned I = 1; I < Len; I++) {
+    char *Key = Argv[I];
+    char *CP = std::strchr(Key, '=');
+    if(!CP) {
+      if(contains(Key))
+        Valid = false;
+      operator[](Key) = "";
+    }
+    else {
+      *CP = '\0';
+      if(contains(Key))
+        Valid = false;
+      operator[](Key) = ++CP;
+    }
+  }
+}
 
 template <>
 int OptionMap::get(const std::string &Key) const {
