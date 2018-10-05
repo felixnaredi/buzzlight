@@ -22,11 +22,12 @@
 #define GUARD(p) do { if(!(p)) return -1; } while(0)
 #define OK 0
 #define min(a, b) (a < b ? a : b)
+#define max(a, b) (a > b ? a : b)
 
 struct backl
 {
-	uint32_t maxbrg;
-	uint32_t stored;
+	int32_t maxbrg;
+	int32_t stored;
 	bool ready:1;
 	bool on:1;
 };
@@ -34,15 +35,15 @@ struct backl
 struct ssetd
 {
 	pthread_t thread;
-	uint32_t from;
-	uint32_t to;
+	int32_t from;
+	int32_t to;
 	uint32_t usec;
 	bool store:1;
 };
 
 static struct backl *bl = NULL;
 
-static int parse10n_uint32(const char *s, size_t len, unsigned *n)
+static int parse10n_uint32(const char *s, size_t len, int *n)
 {
 	size_t i;
 	char *ofs;
@@ -61,7 +62,7 @@ static int parse10n_uint32(const char *s, size_t len, unsigned *n)
 }
 
 
-static int readval(const char *path, unsigned *n)
+static int readval(const char *path, int *n)
 {
 	char buf[32];
 	int fd = open(path, O_RDONLY);
@@ -74,7 +75,7 @@ static int readval(const char *path, unsigned *n)
 	return OK;
 }
 
-static int get_brightness(uint32_t *des)
+static int get_brightness(int32_t *des)
 {
 	GUARD(readval(BACKLPATH "/brightness", des) == OK);
 	return OK;
@@ -105,7 +106,7 @@ static int init_backl(struct backl *bl)
 
 static PROPERTY_GETTER(property_get_backlight_enabled, "b", bl->on);
 static PROPERTY_GETTER(property_get_max_brightness, "u", bl->maxbrg);
-static PROPERTY_GETTER(property_get_stored_brightness, "u", bl->stored);
+static PROPERTY_GETTER(property_get_stored_brightness, "i", bl->stored);
 static PROPERTY_GETTER(property_get_ready, "b", bl->ready);
 
 #undef PROPERTY_GETTER
@@ -118,26 +119,25 @@ static int property_get_brightness(sd_bus *bus,
 				   void *userdata,
 				   sd_bus_error *error)
 {
-	uint32_t val;
+	int32_t val;
 
 	assert(bus);
 	assert(reply);
 
 	if(get_brightness(&val) != OK)
-		return sd_bus_message_append(reply, "u", -1);
-	return sd_bus_message_append(reply, "u", val);
+		return sd_bus_message_append(reply, "i", -1);
+	return sd_bus_message_append(reply, "i", val);
 }
 
-static int set_brightness(uint32_t val)
+static int set_brightness(int32_t val)
 {
 	char buf[32];
 	int fd;
 
-	assert(bl->ready);
 	GUARD((fd = open(BACKLPATH "/brightness", O_WRONLY)) > 0);
 	ftruncate(fd, 0);
 
-	val = min(val, bl->maxbrg);
+	val = min(max(0, val), bl->maxbrg);
 	snprintf(buf, sizeof(buf), "%u\n", val);
 	GUARD(write(fd, buf, strlen(buf)) > 0);
 	close(fd);
@@ -184,13 +184,13 @@ static int property_set_brightness(sd_bus *bus,
 				   sd_bus_error *ret_error)
 {
 	int r;
-	uint32_t val;
+	int32_t val;
 
 	GUARD(bl->ready);
 	assert(bus);
 	assert(value);
 
-	r = sd_bus_message_read(value, "u", &val);
+	r = sd_bus_message_read(value, "i", &val);
 	if(r < 0)
 		return r;
 	set_brightness(val);
@@ -218,7 +218,7 @@ static int smooth_set(struct ssetd *sd)
 	delta = ((float)sd->to - (float)sd->from) / (float)dur;
 
 	for(i = 0; i < dur; i++) {
-		uint32_t v = sd->from + (delta * i);
+		int32_t v = sd->from + (delta * i);
 
 		if(set_brightness(v) < 0)
 			break;
@@ -245,8 +245,8 @@ static void *thread_smooth_set(void *sd)
 }
 
 static int init_ssetd(struct ssetd *sd,
-		      uint32_t from,
-		      uint32_t to,
+		      int32_t from,
+		      int32_t to,
 		      uint32_t usec,
 		      bool store)
 {
@@ -271,18 +271,18 @@ static int method_set_brightness_smooth(sd_bus_message *m,
 					void *userdata,
 					sd_bus_error *error)
 {
-	uint32_t val, usec, brg;
+	int32_t val, brg;
+	uint32_t usec;
 	int store, r;
 	struct ssetd *sd;
 
 	assert(m);
 	GUARD(bl->ready);
 
-	r = sd_bus_message_read(m, "uub", &val, &usec, &store);
+	r = sd_bus_message_read(m, "iub", &val, &usec, &store);
 	if(r < 0)
 		return r;
 
-	val = min(val, bl->maxbrg);
 	GUARD(get_brightness(&brg) == OK);
 
 	sd = malloc(sizeof(struct ssetd));
@@ -296,14 +296,15 @@ static int method_toggle_backlight(sd_bus_message *m,
 				   void *userdata,
 				   sd_bus_error *error)
 {
-	uint32_t val, brg, usec;
+	int32_t val, brg;
+	uint32_t us;
 	int r;
 	struct ssetd *sd;
 
 	assert(m);
 	GUARD(bl->ready);
 
-	r = sd_bus_message_read(m, "u", &usec);
+	r = sd_bus_message_read(m, "u", &us);
 	if(r < 0)
 		return r;
 
@@ -311,7 +312,7 @@ static int method_toggle_backlight(sd_bus_message *m,
 	GUARD(get_brightness(&brg) == OK);
 
 	sd = malloc(sizeof(struct ssetd));
-	GUARD(init_ssetd(sd, brg, val, usec, 0) == OK);
+	GUARD(init_ssetd(sd, brg, val, us, 0) == OK);
 	pthread_detach(sd->thread);
 
 	return sd_bus_reply_method_return(m, "b", bl->on);
@@ -327,7 +328,7 @@ static const sd_bus_vtable vtable[] = {
 			property_get_max_brightness,
 			0,
 			SD_BUS_VTABLE_PROPERTY_CONST),
-	SD_BUS_PROPERTY("StoredBrightness", "u",
+	SD_BUS_PROPERTY("StoredBrightness", "i",
 			property_get_stored_brightness,
 			0,
 			0),
@@ -336,12 +337,12 @@ static const sd_bus_vtable vtable[] = {
 				 property_set_backlight_enabled,
 				 0,
 				 SD_BUS_VTABLE_UNPRIVILEGED),
-	SD_BUS_WRITABLE_PROPERTY("Brightness", "u",
+	SD_BUS_WRITABLE_PROPERTY("Brightness", "i",
 				 property_get_brightness,
 				 property_set_brightness,
 				 0,
 				 SD_BUS_VTABLE_UNPRIVILEGED),
-	SD_BUS_METHOD("SetBrightnessSmooth", "uub", "",
+	SD_BUS_METHOD("SetBrightnessSmooth", "iub", "",
 		      method_set_brightness_smooth,
 		      SD_BUS_VTABLE_UNPRIVILEGED),
 	SD_BUS_METHOD("ToggleBacklight", "u", "b",

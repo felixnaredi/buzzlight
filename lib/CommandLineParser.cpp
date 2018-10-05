@@ -70,6 +70,28 @@ GetContextCommand::GetContextCommand(const OptionMap &Map) : Command(Map) {
                       });
 }
 
+SetContextCommand::SetContextCommand(const OptionMap &Map) : Command(Map) {
+  if(!Valid)
+    return;
+  Min = Map.get<int>("-min", -1);
+  Max = Map.get<int>("-max", -1);
+  Increase = Map.get<int>("-increase", -1);
+  Decrease = Map.get<int>("-decrease", -1);
+  Value = Map.get<int>("-value", -1);
+  Valid = std::all_of(Map.cbegin(), Map.cend(),
+                      [](auto &Opt) {
+                        return Opt.first == "-set" ||
+                            Opt.first == "-min" ||
+                            Opt.first == "-max" ||
+                            Opt.first == "-increase" ||
+                            Opt.first == "-decrease" ||
+                            Opt.first == "-value";
+                      });
+  if(!Valid)
+    return;
+  Valid = ((Increase > -1) != (Decrease > -1)) != (Value > -1);
+}
+
 template <class Context>
 std::unique_ptr<Context> makeContextCommand(const OptionMap &Map) {
   std::unique_ptr<Context> C(new Context(Map));
@@ -78,9 +100,8 @@ std::unique_ptr<Context> makeContextCommand(const OptionMap &Map) {
   return C;
 }
 
-std::unique_ptr<Command> CommandLineParser::parseCommandLine(
-    char **Argv,
-    int Len) {
+std::unique_ptr<Command> CommandLineParser::parseCommandLine(char **Argv,
+                                                             int Len) {
   OptionMap Map(Argv, Len);
   if(!Map.isValid())
     return nullptr;

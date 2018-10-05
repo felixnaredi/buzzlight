@@ -10,6 +10,7 @@
 #define BUZZ_BACKLIGHT_H
 
 #include "buzz/DBus.h"
+#include <cstdint>
 
 namespace buzz {
 
@@ -22,8 +23,10 @@ public:
   dbus::TrivialProperty MaxBrightness;
   dbus::TrivialProperty Ready;
   dbus::TrivialProperty BacklightEnabled;
+
+  void setBrightnessSmooth(std::int32_t Value, std::uint32_t US, bool Store);
 };
 
-};
+}
 
 #endif // BUZZ_BACKLIGHT_H

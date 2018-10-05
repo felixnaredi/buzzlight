@@ -21,5 +21,6 @@ int main(int argc, char **argv)
             << "BacklightEnables: " << static_cast<bool>(
                 Bl.BacklightEnabled.get())
             << "\n";
+  Bl.Brightness.set(35000);
   return 0;
 }

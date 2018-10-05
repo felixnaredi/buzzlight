@@ -40,7 +40,8 @@ public:
   TrivialProperty(Object *busobject, const char *member, char type)
       : BusObject(busobject), Member(member), Type(type) {}
 
-  std::uint64_t get();
+  std::uint64_t get() const;
+  void set(std::uint64_t Value);
 };
 
 

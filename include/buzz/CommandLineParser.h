@@ -45,7 +45,13 @@ struct GetContextCommand : public Command {
 };
 
 struct SetContextCommand : public Command {
-  SetContextCommand(const OptionMap &Map) : Command(Map) {}
+  int Min;
+  int Max;
+  int Value;
+  int Increase;
+  int Decrease;
+
+  SetContextCommand(const OptionMap &Map);
 };
 struct HelpContextCommand : public Command {
   HelpContextCommand(const OptionMap &Map) : Command(Map) {}
