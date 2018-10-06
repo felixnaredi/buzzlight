@@ -11,30 +11,23 @@
 
 #include "buzz/DBus/Object.h"
 #include <cstdint>
-#include <vector>
+#include <memory>
 #include <systemd/sd-bus.h>
 
 namespace buzz {
 
-class BacklightDaemon {
-  dbus::Object DBusObject;
-  sd_bus_vtable *VirtualTable;
-
+class BacklightDaemon : public dbus::Object {
   const std::int32_t MaxBrightness;
   std::int32_t StoredBrightness;
   bool Ready;
-  bool Enabled;
 
 public:
   BacklightDaemon();
 
-  dbus::Object *getObject() {
-    return &DBusObject;
-  }
-
-  void run();
+  virtual std::unique_ptr<sd_bus_vtable[]> spawnVirtualTable();
 
   std::int32_t getBrightness() const;
+  void setBrightness(std::int32_t Value);
 
   std::int32_t getMaxBrightness() const {
     return MaxBrightness;
@@ -48,9 +41,9 @@ public:
     return Ready;
   }
 
-  bool getIsEnabled() const {
-    return Enabled;
-  }
+  bool getIsEnabled() const;
+
+  bool toggleBacklight(std::uint32_t MilliSec) const;
 };
 
 }

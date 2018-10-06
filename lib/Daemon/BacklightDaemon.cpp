@@ -15,14 +15,23 @@
 #include <cstdlib>
 #include <string>
 #include <stdexcept>
+#include <thread>
+#include <chrono>
 #include <systemd/sd-bus.h>
+
+#include <iostream>
 
 using namespace buzz;
 
-static dbus::Object BaseObject(dbus::DefaultBus::System,
-                               "git.felixnaredi.buzzlight",
-                               "/git/felixnaredi/buzzlight",
-                               "git.felixnaredi.buzzlight");
+template <typename T>
+static T min(T a, T b) {
+  return a < b ? a : b;
+}
+
+template <typename T>
+static T max(T a, T b) {
+  return a > b ? a : b;
+}
 
 std::int32_t BacklightDaemon::getBrightness() const {
   try {
@@ -32,144 +41,51 @@ std::int32_t BacklightDaemon::getBrightness() const {
   return -1;
 }
 
-void BacklightDaemon::run() {
-  sd_bus *Bus = DBusObject.Bus;
-  assert(Bus);
-  while(1) {
-    int R = sd_bus_process(Bus, NULL);
-    if(R < 0)
-      throw std::runtime_error(strerror(-R));
-    if(R > 0)
-      continue;
-    R = sd_bus_wait(Bus, (uint64_t) -1);
-    if(R < 0)
-      throw std::runtime_error(strerror(-R));
+void BacklightDaemon::setBrightness(std::int32_t Value) {
+  int V = min(max(0, Value), MaxBrightness);
+  try {
+    FileManager::writeBrightnessValue(V);
   }
+  catch (std::exception &Exception) {}
 }
 
-struct Singleton {
-  static BacklightDaemon *Daemon;
+bool BacklightDaemon::getIsEnabled() const {
+  return getBrightness() != 0;
+}
 
-  static std::int32_t getMaxBrightness() {
-    assert(Daemon);
-    return Daemon->getMaxBrightness();
-  }
+struct Frame {
+  using Duration = std::chrono::duration<std::uint32_t, std::ratio<1, 60>>;
 
-  static std::int32_t getBrightness() {
-    assert(Daemon);
-    return Daemon->getBrightness();
-  }
-
-  static void setBrightness(std::int32_t Value) {
-    assert(Daemon);
-    return Daemon->setBrightness(Value);
-  }
-
-  static std::int32_t getStoredBrightness() {
-    assert(Daemon);
-    return Daemon->getStoredBrightness();
-  }
-
-  static int getIsReady() {
-    assert(Daemon);
-    return Daemon->getIsReady();
-  }
-
-  static int getIsEnabled() {
-    assert(Daemon);
-    return Daemon->getIsEnabled();
+  template <typename Dur>
+  static int count(const Dur &D) {
+    return std::chrono::duration_cast<Duration>(D).count();
   }
 };
 
-BacklightDaemon *Singleton::Daemon = nullptr;
+static void smoothSet(std::int32_t From,
+                      std::int32_t To,
+                      std::uint32_t MilliSec) {
+  int Frames = Frame::count(std::chrono::milliseconds(MilliSec));
+  auto Thread = std::thread(
+      [From, To, Frames]{
+        float Delta = static_cast<float>(To - From) /
+                          static_cast<float>(Frames);
+        for(int I = 0; I < Frames; I++) {
+          FileManager::writeBrightnessValue(
+              From + static_cast<std::int32_t>(Delta * I));
+          std::this_thread::sleep_for(Frame::Duration(1));
+        }
+        FileManager::writeBrightnessValue(To);
+      });
+  Thread.join();
+}
 
-struct Property {
-#define BUZZ_PROPERTY_GETTER(Name, Signature, Func)             \
-  static int Name(sd_bus *Bus,                                  \
-                  const char *Path,                             \
-                  const char *Interface,                        \
-                  const char *Property,                         \
-                  sd_bus_message *Reply,                        \
-                  void *UserData,                               \
-                  sd_bus_error *Error) {                        \
-    assert(Bus);                                                \
-    assert(Reply);                                              \
-    return sd_bus_message_append(Reply, Signature, Func());     \
+bool BacklightDaemon::toggleBacklight(std::uint32_t MilliSec) const {
+  bool Enabled = getIsEnabled();
+  std::int32_t V = Enabled ? 0 : StoredBrightness;
+  try {
+    smoothSet(getBrightness(), V, MilliSec);
   }
-
-  BUZZ_PROPERTY_GETTER(getMaxBrightness,
-                       "i",
-                       Singleton::getMaxBrightness);
-  BUZZ_PROPERTY_GETTER(getBrightness,
-                       "i",
-                       Singleton::getBrightness);
-  BUZZ_PROPERTY_GETTER(getStoredBrightness,
-                       "i",
-                       Singleton::getStoredBrightness);
-  BUZZ_PROPERTY_GETTER(getIsReady,
-                       "b",
-                       Singleton::getIsReady);
-  BUZZ_PROPERTY_GETTER(getIsEnabled,
-                       "b",
-                       Singleton::getIsEnabled);
-
-#undef BUZZ_PROEPRTY_GETTER
-};
-
-BacklightDaemon::BacklightDaemon()
-    : DBusObject(BaseObject),
-      MaxBrightness(FileManager::readMaxBrightnessValue()),
-      StoredBrightness(FileManager::readBrightnessValue()),
-      Ready(true) {
-
-  Enabled = StoredBrightness > 0;
-
-  sd_bus_vtable Temp[] = {
-    SD_BUS_VTABLE_START(0),
-    SD_BUS_PROPERTY("MaxBrightness",
-                    "i",
-                    Property::getMaxBrightness,
-                    0,
-                    SD_BUS_VTABLE_PROPERTY_CONST),
-    SD_BUS_PROPERTY("Brightness",
-                    "i",
-                    Property::getBrightness,
-                    0,
-                    0),
-    SD_BUS_PROPERTY("StoredBrightness",
-                    "i",
-                    Property::getStoredBrightness,
-                    0,
-                    0),
-    SD_BUS_PROPERTY("IsReady",
-                    "b",
-                    Property::getIsReady,
-                    0,
-                    0),
-    SD_BUS_PROPERTY("IsEnabled",
-                    "b",
-                    Property::getIsEnabled,
-                    0,
-                    0),
-    SD_BUS_VTABLE_END,
-  };
-  VirtualTable = static_cast<sd_bus_vtable *>(std::malloc(sizeof(Temp)));
-  assert(VirtualTable);
-  std::memcpy(VirtualTable, Temp, sizeof(Temp));
-
-  sd_bus_slot *Slot;
-  int R = sd_bus_add_object_vtable(DBusObject.Bus,
-                                   &Slot,
-                                   DBusObject.Path,
-                                   DBusObject.Destination,
-                                   VirtualTable,
-                                   NULL);
-  if(R < 0)
-    throw std::runtime_error(strerror(-R));
-
-  R = sd_bus_request_name(DBusObject.Bus, DBusObject.Interface, 0);
-  if(R < 0)
-    throw std::runtime_error(strerror(-R));
-
-  Singleton::Daemon = this;
+  catch (std::exception &Exception) {}
+  return !Enabled;
 }
