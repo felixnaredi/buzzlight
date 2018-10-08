@@ -3,55 +3,54 @@
 // License goes here.
 //===----------------------------------------------------------------------===//
 //
-// Implements backlight.
+// Implements Backlight.h.
 //===----------------------------------------------------------------------===//
 
 #include "buzz/Backlight.h"
-#include "buzz/DBus.h"
+#include "buzz/DBus/DBusObject.h"
+#include "buzz/DBus/Property.h"
 #include <cstdint>
-#include <stdexcept>
 #include <systemd/sd-bus.h>
 
 using namespace buzz;
 
-sd_bus *systemBus() {
-  sd_bus *bus = NULL;
-  int R = sd_bus_default_system(&bus);
+extern dbus::DBusObject BacklightObject;
+
+Backlight::Backlight()
+    : Object(&BacklightObject),
+      Brightness(&BacklightObject, "Brightness"),
+      MaxBrightness(&BacklightObject, "MaxBrightness"),
+      IsEnabled(&BacklightObject, "IsEnabled"),
+      IsReady(&BacklightObject, "IsReady") {}
+
+void Backlight::toggleBacklight(std::uint32_t MilliSec) {
+  sd_bus_message *Reply;
+  int R = sd_bus_call_method(Object->Bus,
+                             Object->Destination,
+                             Object->Path,
+                             Object->Interface,
+                             "ToggleBacklight",
+                             NULL,
+                             &Reply,
+                             "u",
+                             MilliSec);
   if(R < 0)
-    return nullptr;
-  return bus;
+    throw std::runtime_error(strerror(-R));
 }
 
-dbus::Object Backlight::BacklightDBusObject(systemBus(),
-                                            "git.felixnaredi.buzzlight",
-                                            "/git/felixnaredi/buzzlight",
-                                            "git.felixnaredi.buzzlight");
-
-Backlight::Backlight() :
-    Brightness(&BacklightDBusObject, "Brightness", 'i'),
-    MaxBrightness(&BacklightDBusObject, "MaxBrightness", 'u'),
-    Ready(&BacklightDBusObject, "Ready", 'b'),
-    BacklightEnabled(&BacklightDBusObject, "BacklightEnabled", 'b') {}
-
 void Backlight::setBrightnessSmooth(std::int32_t Value,
-                                    std::uint32_t US,
-                                    bool Store) {
-
-  if(!Ready.get())
-    return;
-  dbus::Object *Obj = &Backlight::BacklightDBusObject;
+                                    std::uint32_t MilliSec) {
   sd_bus_message *Reply;
-  int R = sd_bus_call_method(Obj->Bus,
-                             Obj->Destination,
-                             Obj->Path,
-                             Obj->Interface,
+  int R = sd_bus_call_method(Object->Bus,
+                             Object->Destination,
+                             Object->Path,
+                             Object->Interface,
                              "SetBrightnessSmooth",
                              NULL,
                              &Reply,
-                             "iub",
+                             "uu",
                              Value,
-                             US,
-                             Store);
+                             MilliSec);
   if(R < 0)
     throw std::runtime_error(strerror(-R));
 }

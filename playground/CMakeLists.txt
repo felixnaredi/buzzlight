@@ -1,13 +1,10 @@
+add_executable(Frontend
+  "Frontend.cpp"
+  "${BUZZ_LIB_DIR}/DBus/DBusObject.cpp"
+  "${BUZZ_LIB_DIR}/DBus/Property.cpp"
+  "${BUZZ_LIB_DIR}/BacklightBase.cpp"
+  "${BUZZ_LIB_DIR}/Backlight.cpp")
 
-add_executable(CMP
-  "CMP.cpp"
-  "../lib/CommandLineParser.cpp"
-  "../lib/OptionMap.cpp")
-
-add_executable(DBusGetter
-  "DBusGetter.cpp"
-  "../lib/DBus.cpp"
-  "../lib/Backlight.cpp")
-
-target_link_libraries(DBusGetter
+target_link_libraries(Frontend
+  pthread
   systemd)

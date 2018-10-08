@@ -6,7 +6,7 @@
 // Implements DBus object.
 //===----------------------------------------------------------------------===//
 
-#include "buzz/DBus/Object.h"
+#include "buzz/DBus/DBusObject.h"
 #include <cassert>
 #include <stdexcept>
 #include <systemd/sd-bus.h>
@@ -34,18 +34,18 @@ sd_bus *defaultBus(DefaultBus K) {
 }
 
 
-Object::Object(DefaultBus K,
-               const char *destination,
-               const char *path,
-               const char *interface)
-    : Object(defaultBus(K), nullptr, destination, path, interface) {}
+DBusObject::DBusObject(DefaultBus K,
+                       const char *destination,
+                       const char *path,
+                       const char *interface)
+    : DBusObject(defaultBus(K), nullptr, destination, path, interface) {}
 
-Object::~Object() {
+DBusObject::~DBusObject() {
   sd_bus_slot_unref(Slot);
   sd_bus_unref(Bus);
 }
 
-void Object::run() {
+void DBusObject::run() {
   assert(Bus);
   while(1) {
     int R = sd_bus_process(Bus, NULL);
@@ -59,7 +59,7 @@ void Object::run() {
   }
 }
 
-void Object::runFor(unsigned MilliSec) {
+void DBusObject::runFor(unsigned MilliSec) {
   assert(Bus);
   unsigned Dur = 0;
   while(Dur < MilliSec) {
@@ -75,7 +75,7 @@ void Object::runFor(unsigned MilliSec) {
   }
 }
 
-void Object::addVirtualTable(sd_bus_vtable *Table) {
+void DBusObject::addVirtualTable(sd_bus_vtable *Table) {
   assert(Table);
   int R = sd_bus_add_object_vtable(Bus,
                                    &Slot,

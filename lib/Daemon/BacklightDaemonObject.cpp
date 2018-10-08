@@ -7,8 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "FileManager.h"
-#include "buzz/DBus/Object.h"
-#include "buzz/Daemon/BacklightDaemon.h"
+#include "buzz/DBus/DBusObject.h"
+#include "buzz/BacklightDaemon.h"
 #include <cassert>
 #include <cstdint>
 #include <cstdlib>
@@ -16,6 +16,8 @@
 #include <systemd/sd-bus.h>
 
 using namespace buzz;
+
+extern dbus::DBusObject BacklightObject;
 
 struct Singleton {
   static BacklightDaemon *Daemon;
@@ -53,6 +55,12 @@ struct Singleton {
   static int methodToggleBacklight(std::uint32_t MilliSec) {
     assert(Daemon);
     return Daemon->toggleBacklight(MilliSec);
+  }
+
+  static void methodSetBrightnessSmooth(std::int32_t Value,
+                                       std::uint32_t MilliSec) {
+    assert(Daemon);
+    Daemon->setBrightnessSmooth(Value, MilliSec);
   }
 };
 
@@ -131,6 +139,21 @@ struct Method {
     return sd_bus_reply_method_return(Message, "b", Ret);
   }
 
+  static int setBrightnessSmooth(sd_bus_message *Message,
+                                 void *UserData,
+                                 sd_bus_error *Error) {
+    assert(Message);
+
+    std::int32_t Value;
+    std::uint32_t MilliSec;
+    int R = sd_bus_message_read(Message, "uu", &Value, &MilliSec);
+    if(R < 0)
+      throw std::runtime_error(strerror(-R));
+
+    Singleton::methodSetBrightnessSmooth(Value, MilliSec);
+    return sd_bus_reply_method_return(Message, "");
+  }
+
 };
 
 std::unique_ptr<sd_bus_vtable[]> BacklightDaemon::spawnVirtualTable() {
@@ -167,6 +190,11 @@ std::unique_ptr<sd_bus_vtable[]> BacklightDaemon::spawnVirtualTable() {
                   "b",
                   Method::toggleBacklight,
                   SD_BUS_VTABLE_UNPRIVILEGED),
+    SD_BUS_METHOD("SetBrightnessSmooth",
+                  "uu",
+                  "",
+                  Method::setBrightnessSmooth,
+                  SD_BUS_VTABLE_UNPRIVILEGED),
     SD_BUS_VTABLE_END,
   };
   std::unique_ptr<sd_bus_vtable[]> Ptr = std::unique_ptr<sd_bus_vtable[]>(
@@ -177,13 +205,8 @@ std::unique_ptr<sd_bus_vtable[]> BacklightDaemon::spawnVirtualTable() {
   return Ptr;
 }
 
-static dbus::Object BaseObject(dbus::DefaultBus::System,
-                               "git.felixnaredi.buzzlight",
-                               "/git/felixnaredi/buzzlight",
-                               "git.felixnaredi.buzzlight");
-
 BacklightDaemon::BacklightDaemon()
-    : dbus::Object(&BaseObject),
+    : dbus::DBusObject(&BacklightObject),
       MaxBrightness(FileManager::readMaxBrightnessValue()),
       StoredBrightness(FileManager::readBrightnessValue()),
       Ready(true) {

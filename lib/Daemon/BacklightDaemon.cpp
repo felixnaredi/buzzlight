@@ -7,8 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "FileManager.h"
-#include "buzz/Daemon/BacklightDaemon.h"
-#include "buzz/DBus/Object.h"
+#include "buzz/BacklightDaemon.h"
+#include "buzz/DBus/DBusObject.h"
 #include <cstdint>
 #include <cassert>
 #include <cstring>
@@ -18,8 +18,6 @@
 #include <thread>
 #include <chrono>
 #include <systemd/sd-bus.h>
-
-#include <iostream>
 
 using namespace buzz;
 
@@ -65,6 +63,7 @@ struct Frame {
 static void smoothSet(std::int32_t From,
                       std::int32_t To,
                       std::uint32_t MilliSec) {
+
   int Frames = Frame::count(std::chrono::milliseconds(MilliSec));
   auto Thread = std::thread(
       [From, To, Frames]{
@@ -88,4 +87,15 @@ bool BacklightDaemon::toggleBacklight(std::uint32_t MilliSec) const {
   }
   catch (std::exception &Exception) {}
   return !Enabled;
+}
+
+void BacklightDaemon::setBrightnessSmooth(std::int32_t Value,
+                                          std::uint32_t MilliSec) {
+  Value = min(max(0, Value), MaxBrightness);
+  if(Value > 0)
+    StoredBrightness = Value;
+  try {
+    smoothSet(getBrightness(), Value, MilliSec);
+  }
+  catch (std::exception &Exception) {}
 }

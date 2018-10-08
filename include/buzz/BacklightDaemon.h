@@ -6,17 +6,17 @@
 // Set up for the dbus daemon.
 //===----------------------------------------------------------------------===//
 
-#ifndef BUZZ_DAEMON_SETUP_H
-#define BUZZ_DAEMON_SETUP_H
+#ifndef BUZZ_BACKLIGHTDAEMON_H
+#define BUZZ_BACKLIGHTDAEMON_H
 
-#include "buzz/DBus/Object.h"
+#include "buzz/DBus/DBusObject.h"
 #include <cstdint>
 #include <memory>
 #include <systemd/sd-bus.h>
 
 namespace buzz {
 
-class BacklightDaemon : public dbus::Object {
+class BacklightDaemon : public dbus::DBusObject {
   const std::int32_t MaxBrightness;
   std::int32_t StoredBrightness;
   bool Ready;
@@ -44,8 +44,9 @@ public:
   bool getIsEnabled() const;
 
   bool toggleBacklight(std::uint32_t MilliSec) const;
+  void setBrightnessSmooth(std::int32_t Value, std::uint32_t MilliSec);
 };
 
 }
 
-#endif // BUZZ_DAEMON_SETUP_H
+#endif // BUZZ_BACKLIGHTDAEMON_H
