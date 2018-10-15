@@ -7,8 +7,8 @@
 //===----------------------------------------------------------------------===//
 
 #include "FileManager.h"
+#include "BacklightDaemon.h"
 #include "buzz/DBus/DBusObject.h"
-#include "buzz/BacklightDaemon.h"
 #include <cassert>
 #include <cstdint>
 #include <cstdlib>

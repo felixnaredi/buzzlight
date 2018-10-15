@@ -6,8 +6,8 @@
 // Program for buzzlight daemon.
 //===----------------------------------------------------------------------===//
 
+#include "BacklightDaemon.h"
 #include "buzz/DBus/DBusObject.h"
-#include "buzz/BacklightDaemon.h"
 
 using namespace buzz;
 

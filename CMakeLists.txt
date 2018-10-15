@@ -6,5 +6,4 @@ include_directories("include")
 
 set(BUZZ_LIB_DIR "${CMAKE_CURRENT_SOURCE_DIR}/lib")
 
-add_subdirectory(lib)
-add_subdirectory(playground)
+add_subdirectory(tool)

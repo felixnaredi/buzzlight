@@ -16,8 +16,8 @@
 using namespace buzz;
 using namespace dbus;
 
-template <typename T>
-static T getTrivial(const DBusObject *Obj, const char *Member, char Sig) {
+template <typename T, char Sig>
+static T getTrivial(const DBusObject *Obj, const char *Member) {
   std::uint64_t V = 0;
   int R = sd_bus_get_property_trivial(Obj->Bus,
                                       Obj->Destination,
@@ -35,7 +35,7 @@ static T getTrivial(const DBusObject *Obj, const char *Member, char Sig) {
 #define BUZZ_TRIVIAL_GETTER(T, Sig)              \
   template <>                                    \
   T Property<T>::get() const {                   \
-    return getTrivial<T>(Object, Member, Sig);   \
+    return getTrivial<T, Sig>(Object, Member);   \
   }
 
 BUZZ_TRIVIAL_GETTER(std::uint8_t, 'y')
@@ -50,11 +50,8 @@ BUZZ_TRIVIAL_GETTER(double, 'd')
 
 #undef BUZZ_TRIVIAL_GETTER
 
-template <typename T>
-static void setTrivial(const DBusObject *Obj,
-                       const char *Member,
-                       char Sig,
-                       T Value) {
+template <char Sig, typename T>
+static void setTrivial(const DBusObject *Obj, const char *Member, T Value) {
   char Buffer[2] = {0, 0};
   Buffer[0] = Sig;
   int R = sd_bus_set_property(Obj->Bus,
@@ -72,7 +69,7 @@ static void setTrivial(const DBusObject *Obj,
 #define BUZZ_TRIVIAL_SETTER(T, Sig)           \
   template <>                                 \
   void WritableProperty<T>::set(const T &V) { \
-    setTrivial(Object, Member, Sig, V);       \
+    setTrivial<Sig>(Object, Member, V);       \
   }
 
 BUZZ_TRIVIAL_SETTER(std::uint8_t, 'y')
