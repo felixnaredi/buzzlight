@@ -9,7 +9,6 @@
 #include "CommandLineParser.h"
 #include <cstddef>
 #include <cassert>
-#include <vector>
 #include <string>
 
 using namespace buzz;

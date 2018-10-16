@@ -17,60 +17,144 @@
 
 using namespace buzz;
 
-struct Ratio {
-  int Num;
-  int Denum;
+struct Range {
+  int Begin;
+  int End;
 
-  Ratio(int num, int denum) : Num(num), Denum(denum) {}
+  Range(int begin, int end) : Begin(begin), End(end) {
+    assert(begin < end);
+  }
+
+  int Length() {
+    return End - Begin;
+  }
 
   int relative(int Value, int MaxValue) {
     assert(Value < MaxValue);
 
     double R = static_cast<double>(Value) / static_cast<double>(MaxValue);
-    return static_cast<int>(static_cast<double>(Denum) * R);
+    return static_cast<int>(static_cast<double>(Length()) * R) + Begin;
   }
 };
 
-std::vector<std::string> getCommandReps(
-    CommandOptions &Options,
+static std::unique_ptr<std::vector<std::string>> getCommandReps(
+    CommandOptions &&Options,
     int Brightness,
     int MaxBrightness,
-    std::vector<std::string> *Vec = nullptr) {
-
-  if(Vec == nullptr)
-    Vec = new std::vector<std::string>();
+    std::unique_ptr<std::vector<std::string>> Vec = nullptr) {
 
   std::stringstream SS;
 
   if(Options.HasMinValue && Options.HasMaxValue) {
-    SS << Ratio(Options.Min, Options.Max).relative(Brightness, MaxBrightness)
+    if(Vec == nullptr) {
+      Vec = std::unique_ptr<std::vector<std::string>>(
+          new std::vector<std::string>());
+    }
+
+    SS << Range(Options.Min, Options.Max).relative(Brightness, MaxBrightness)
        << '/'
        << Options.Max;
     Vec->push_back(SS.str());
 
     Options.HasMinValue = 0;
     Options.HasMaxValue = 0;
-    return getCommandReps(Options, Brightness, MaxBrightness, Vec);
+    return getCommandReps(std::move(Options),
+                          Brightness,
+                          MaxBrightness,
+                          std::move(Vec));
   }
 
   if(Options.PercentExpression) {
-    SS << Ratio(0, 100).relative(Brightness, MaxBrightness) << '%';
+    if(Vec == nullptr) {
+      Vec = std::unique_ptr<std::vector<std::string>>(
+          new std::vector<std::string>());
+    }
+
+    SS << Range(0, 100).relative(Brightness, MaxBrightness) << '%';
     Vec->push_back(SS.str());
 
     Options.PercentExpression = 0;
-    return getCommandReps(Options, Brightness, MaxBrightness, Vec);
+    return getCommandReps(std::move(Options),
+                          Brightness,
+                          MaxBrightness,
+                          std::move(Vec));
   }
 
   if(Options.RawValueExpression) {
+    if(Vec == nullptr) {
+      Vec = std::unique_ptr<std::vector<std::string>>(
+          new std::vector<std::string>());
+    }
+
     SS << Brightness << "/" << MaxBrightness;
     Vec->push_back(SS.str());
 
     Options.RawValueExpression = 0;
-    return getCommandReps(Options, Brightness, MaxBrightness, Vec);
+    return getCommandReps(std::move(Options),
+                          Brightness,
+                          MaxBrightness,
+                          std::move(Vec));
   }
 
-  return *Vec;
+  return Vec;
 };
+
+template <typename T>
+T min(T a, T b) {
+  return a < b ? a : b;
+}
+
+template <typename T>
+T max(T a, T b) {
+  return a > b ? a : b;
+}
+
+static int rawBacklightValue(CommandOptions &&Options,
+                             int Brightness,
+                             int MaxBrightness) {
+
+  if(Options.RawValueExpression) {
+    int Value = Options.Value;
+
+    if(Options.IncreaseBrightness)
+      Value += Brightness;
+    if(Options.DecreaseBrightness)
+      Value = Brightness - Value;
+
+    return Value;
+  }
+
+  else if(Options.HasMinValue && Options.HasMaxValue) {
+    if(Options.IncreaseBrightness || Options.DecreaseBrightness) {
+      int V = Range(Options.Min, Options.Max).relative(Brightness,
+                                                       MaxBrightness);
+      V += Options.IncreaseBrightness ? Options.Value : -Options.Value;
+
+      Options.Value = V;
+      Options.IncreaseBrightness = 0;
+      Options.DecreaseBrightness = 0;
+      return rawBacklightValue(std::move(Options), Brightness, MaxBrightness);
+    }
+
+    int Value = max(min(Options.Value, Options.Max), Options.Min);
+
+    return Range(0, MaxBrightness).relative(Value - Options.Min,
+                                            Options.Max - Options.Min);
+  }
+
+  else if(Options.PercentExpression) {
+    float V = static_cast<float>(Options.Value) / 100.0;
+
+    if(Options.IncreaseBrightness)
+      return static_cast<float>(Brightness) * (1 + V);
+    if(Options.DecreaseBrightness)
+      return static_cast<float>(Brightness) * (1 - V);
+
+    return static_cast<float>(MaxBrightness) * V;
+  }
+
+  return -1;
+}
 
 int main(int argc, char **argv) {
   CommandOptions Options = CommandOptions::parseCommandLineArgs(
@@ -85,18 +169,36 @@ int main(int argc, char **argv) {
   Backlight Interface;
 
   if(!Options.hasExplicitContext() || Options.ExplicitGetContext) {
-    auto ValueReps = getCommandReps(Options,
-                                    Interface.Brightness.get(),
-                                    Interface.MaxBrightness.get());
-    std::cout << std::accumulate(std::next(std::begin(ValueReps)),
-                                 std::end(ValueReps),
-                                 ValueReps[0],
+    int Brightness = Interface.Brightness.get();
+    int MaxBrightness = Interface.MaxBrightness.get();
+
+    auto ValueReps = getCommandReps(std::move(Options),
+                                    Brightness,
+                                    MaxBrightness);
+
+    // Default implicit representation
+    if(ValueReps == nullptr) {
+      Options.PercentExpression = 1;
+      ValueReps = getCommandReps(std::move(Options), Brightness, MaxBrightness);
+    }
+
+    std::cout << std::accumulate(std::next(std::begin(*ValueReps)),
+                                 std::end(*ValueReps),
+                                 (*ValueReps)[0],
                                  [](std::string &Acc, std::string &E) {
                                    return Acc + ", " + E;
                                  })
               << '\n';
     return 0;
   }
+
+  if(Options.ExplicitSetContext) {
+    int Value = rawBacklightValue(std::move(Options),
+                                  Interface.Brightness.get(),
+                                  Interface.MaxBrightness.get());
+    Interface.Brightness.set(Value);
+  }
+
 
   return 0;
 }
