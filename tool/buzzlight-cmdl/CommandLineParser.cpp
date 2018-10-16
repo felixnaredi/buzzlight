@@ -74,6 +74,12 @@ CommandOptions CommandOptions::parseCommandLineArgs(const char **Argv,
       Opt.RawValueExpression = 1;
     else if(Arg.Key == "-percent")
       Opt.PercentExpression = 1;
+    else if(Arg.Key == "-duration") {
+      Opt.HasDuration = 1;
+      Opt.Duration = stringToInt(Arg.Value);
+    }
+    else if(Arg.Key == "-toggle")
+      Opt.ToggleBacklight = 1;
     else {
       Opt.InvalidOption = 1;
       break;
@@ -88,18 +94,24 @@ bool CommandOptions::isValid() {
     return false;
 
   // Only one explicit context can be set
-  unsigned ExplicitContext = (ExplicitGetContext << 0) |
-                                 (ExplicitSetContext << 1) |
-                                 (ExplicitHelpContext << 2);
-  if(!(ExplicitContext == 0 ||
-       ExplicitContext == 1 ||
-       ExplicitContext == 2 ||
-       ExplicitContext == 4))
+  unsigned Context = (ExplicitGetContext << 0) |
+                         (ExplicitSetContext << 1) |
+                         (ExplicitHelpContext << 2) |
+                         (ToggleBacklight << 3);
+  if(!(Context == 0 ||
+       Context == 1 ||
+       Context == 2 ||
+       Context == 4 ||
+       Context == 8))
     return false;
 
-  // A get context may not have a value, increase or decrease
+  // A get context may not have a value, increase, decrease, duration or toggle
   if(ExplicitGetContext &&
-     (HasValue || IncreaseBrightness || DecreaseBrightness))
+     (HasValue ||
+      IncreaseBrightness ||
+      DecreaseBrightness ||
+      HasDuration ||
+      ToggleBacklight))
     return false;
 
   // A set context specific
@@ -110,17 +122,34 @@ bool CommandOptions::isValid() {
       return false;
   }
 
-  // Value must be valid if set
+  // If toggle backlight is set nothing else may be set.
+  if(ToggleBacklight &&
+     (RawValueExpression ||
+      PercentExpression ||
+      HasValue ||
+      HasMinValue ||
+      HasMaxValue ||
+      IncreaseBrightness ||
+      DecreaseBrightness))
+    return false;
+
+  // Either both min and max is set or none
+  if(HasMinValue != HasMaxValue)
+    return false;
+
+  // Increase and decrease can't be set at the same time.
+  if(IncreaseBrightness && DecreaseBrightness)
+    return false;
+
+  // Values must be set to valid values
   if(HasValue) {
     if(Value < 0)
       return false;
   }
-
-  // Either both min and max is set or none
-  if(!((HasMinValue && HasMaxValue) || (!HasMinValue && !HasMaxValue)))
-    return false;
-
-  // MinValue and MaxValue must be set to valid values if set.
+  if(HasDuration) {
+    if(Duration < 0)
+      return false;
+  }
   if(HasMinValue) {
     if(Min < 0)
       return false;
@@ -131,9 +160,22 @@ bool CommandOptions::isValid() {
       return false;
   }
 
-  // Increase and decrease can't be set at the same time.
-  if(IncreaseBrightness && DecreaseBrightness)
-    return false;
-
   return true;
+}
+
+std::string CommandOptions::HelpString() {
+  return
+      "USAGE: buzzlight-cmdl [options]\n"
+      "-help                 Print this list\n"
+      "-get                  Get brightness\n"
+      "-set                  Set brightness\n"
+      "-toggle               Toggle backlight\n"
+      "-raw-value            Get/Sets raw value\n"
+      "-percent              Get/Sets value in percent\n"
+      "-min=<unsinged>       Get/Sets within min-max range\n"
+      "-max=<unsigned>       Get/Sets within min-max range\n"
+      "-duration=<unsigned>  Sets/Toggles smooth during duration in milleseconds\n"
+      "-value=<unsigned>     Set brightness to value, required when using -set\n"
+      "-increase             Sets brightness increased with value\n"
+      "-decrease             Sets brightness decreased with value\n";
 }

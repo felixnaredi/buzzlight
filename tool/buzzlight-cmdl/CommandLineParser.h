@@ -9,6 +9,8 @@
 #ifndef BUZZ_COMMANDLINEPARSER_H
 #define BUZZ_COMMANDLINEPARSER_H
 
+#include <string>
+
 namespace buzz {
 
 struct CommandOptions {
@@ -22,11 +24,14 @@ struct CommandOptions {
   unsigned DecreaseBrightness : 1;
   unsigned RawValueExpression : 1;
   unsigned PercentExpression : 1;
+  unsigned HasDuration : 1;
+  unsigned ToggleBacklight : 1;
   unsigned InvalidOption : 1;
 
   int Min;
   int Max;
   int Value;
+  int Duration;
 
   CommandOptions()
       : ExplicitGetContext(0),
@@ -39,14 +44,18 @@ struct CommandOptions {
         DecreaseBrightness(0),
         RawValueExpression(0),
         PercentExpression(0),
+        HasDuration(0),
+        ToggleBacklight(0),
         InvalidOption(0) {}
 
+  static std::string HelpString();
   static CommandOptions parseCommandLineArgs(const char **Argv, int Argc);
 
   bool isValid();
 
   bool hasExplicitContext() {
-    return ExplicitGetContext || ExplicitSetContext || ExplicitHelpContext;
+    return ExplicitGetContext || ExplicitSetContext || ExplicitHelpContext ||
+        ToggleBacklight;
   }
 };
 

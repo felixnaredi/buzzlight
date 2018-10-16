@@ -161,9 +161,9 @@ int main(int argc, char **argv) {
       const_cast<const char **>(argv),
       argc);
 
-  if(!Options.isValid()) {
-    std::cout << "Invalid command\n";
-    return -1;
+  if(!Options.isValid() || Options.ExplicitHelpContext) {
+    std::cout << CommandOptions::HelpString();
+    return 0;
   }
 
   Backlight Interface;
@@ -192,11 +192,25 @@ int main(int argc, char **argv) {
     return 0;
   }
 
+  if(Options.ToggleBacklight) {
+    if(!Interface.IsReady.get())
+      return 0;
+    Interface.toggleBacklight(Options.HasDuration ? Options.Duration : 0);
+    return 0;
+  }
+
   if(Options.ExplicitSetContext) {
+    if(!Interface.IsReady.get())
+      return 0;
     int Value = rawBacklightValue(std::move(Options),
                                   Interface.Brightness.get(),
                                   Interface.MaxBrightness.get());
-    Interface.Brightness.set(Value);
+    if(!Options.HasDuration) {
+      Interface.Brightness.set(Value);
+      return 0;
+    }
+
+    Interface.setBrightnessSmooth(Value, Options.Duration);
   }
 
 

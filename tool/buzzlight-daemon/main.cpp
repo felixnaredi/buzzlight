@@ -13,9 +13,11 @@ using namespace buzz;
 
 int main(int argc, char **argv) {
   BacklightDaemon DB;
+
   auto Table = DB.spawnVirtualTable();
   DB.addVirtualTable(Table.get());
-  DB.runFor(10000);
+
+  DB.run();
 
   return 0;
 }
